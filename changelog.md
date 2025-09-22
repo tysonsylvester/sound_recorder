@@ -1,24 +1,117 @@
-2025-09-22
+Sound Recorder & Editor – Changelog
+Version: 1.3 (Current)
+Date: 2025-09-22
+ 
+New Features
+1. 
+Audio Format Support
 • 
-Scheduler Added: Implemented a new scheduling feature that allows users to specify delays in days, hours, and minutes before recording starts.
+Record audio in WAV, MP3, or FLAC formats.
 • 
-Improved Countdown: The countdown for long delays is now more concise, providing updates in hours and minutes before a final 3-second countdown.
+Added --output-format CLI option and interactive prompt to choose format.
 • 
-Code Refactoring: The changelog was moved to this dedicated CHANGELOG.md file to follow standard GitHub practices.
-2025-09-21
+Ensures filename extension matches the selected format.
 • 
-Critical Bug Fix: Corrected a wave library AttributeError caused by a typo (setfrate was replaced with setframerate).
+Includes fallback to WAV if format not specified.
+2. 
+Pause/Resume & Status Hotkeys
 • 
-Filename Validation: Added logic to prevent users from starting a recording with an empty filename.
+Press p to pause/resume recording.
 • 
-Improved Filename Handling: Replaced spaces in user-provided filenames with underscores to ensure file compatibility across different operating systems.
-2025-09-20
+Press s to print current recording duration.
 • 
-Performance: Introduced a multi-threaded "producer-consumer" model to improve recording stability. One thread captures audio, and a separate thread writes the data to the file, preventing dropped frames.
+Fully integrated with interactive and CLI modes.
+3. 
+Interactive Edit Menu
 • 
-User Interface: Added a feature that allows users to check the current recording duration by pressing the 'S' key, eliminating constant console output during recording.
-2025-09-19
+Added interactive menu for audio editing (mode=edit).
 • 
-Initial Release: The first version of the sound recorder script.
+Supports:
 • 
-Core Functionality: Implements basic audio recording, configurable recording parameters, and automatic unique filename generation.
+Trim audio (select start and end time in seconds)
+• 
+Merge multiple audio files
+• 
+Fade in/out
+• 
+Normalize audio volume
+• 
+Automatically lists available audio files for selection.
+4. 
+Dynamic Filenames
+• 
+{timestamp} placeholder in filename for automatic timestamping.
+• 
+Ensures unique filenames to avoid overwriting existing recordings.
+5. 
+Improved Scheduling
+• 
+Records can be scheduled by specifying --start-time HH:MM.
+• 
+Handles past times by automatically scheduling for the next day.
+ 
+Enhancements
+1. 
+Robust PyAudio Handling
+• 
+Graceful handling when device IDs are invalid or unavailable.
+• 
+Automatically falls back to default input device if custom device fails.
+• 
+Improved error logging for stream failures.
+2. 
+Queue-based Recording
+• 
+Uses producer-consumer queue for thread-safe audio writing.
+• 
+Prevents audio data loss during high CPU load.
+3. 
+Cross-Platform Compatibility
+• 
+Compatible with Windows (tested), Linux, and macOS (requires PyAudio & pydub).
+4. 
+Interactive Setup Wizard
+• 
+Walks users through:
+• 
+File naming and dynamic timestamp options
+• 
+Duration (or infinite)
+• 
+Start time
+• 
+Input device selection
+• 
+Output format selection
+5. 
+Editor Improvements
+• 
+Users can overwrite or specify a new file when editing.
+• 
+Menu is persistent until user selects “Exit”.
+• 
+Supports trimming, merging, fading, and normalization.
+ 
+Bug Fixes / Stability Improvements
+1. 
+Fixed silent crashes related to missing output directories.
+2. 
+Fixed stream overflow errors during long recordings.
+3. 
+Ensured queue and writer threads terminate properly on interrupt.
+4. 
+Added keyboard hotkey cleanup on exit.
+5. 
+Added fallback for invalid device IDs or formats.
+ 
+Known Limitations / Notes
+1. 
+ffmpeg required for MP3/FLAC recording and editing (pydub dependency).
+• 
+Warning is displayed if ffmpeg is not found.
+2. 
+Scheduled recording still uses time.sleep, so very long waits block the script.
+• 
+Future improvement: integrate with Task Scheduler or background threading.
+3. 
+Merge/fade/normalize operations require user input for file selection in seconds or milliseconds.
