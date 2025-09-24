@@ -1,22 +1,24 @@
-# sound_recorder.py
-# Advanced Sound Recorder & Editor with interactive editing menu
+# advanced_sound_recorder.py
+# A robust, command-line sound recorder and editor.
 
+import pyaudio
+import wave
+import argparse
 import os
 import time
+import logging
 import threading
 import queue
-import argparse
-import logging
-import wave
 import keyboard
 from datetime import datetime
 from pydub import AudioSegment
-import pyaudio
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 
-# ---------------------- Audio Device Utilities ----------------------
+# -------------------------------
+# Helper Functions
+# -------------------------------
 def list_devices():
     """Prints a list of available audio input devices."""
     p = pyaudio.PyAudio()
@@ -33,9 +35,9 @@ def list_devices():
     p.terminate()
     return devices
 
-def get_unique_filename(name, directory, ext='wav'):
+def get_unique_filename(name, directory, ext="wav"):
     """Generates a unique filename to prevent overwriting existing files."""
-    full_path = os.path.join(directory, name + f'.{ext}')
+    full_path = os.path.join(directory, f"{name}.{ext}")
     counter = 1
     while os.path.exists(full_path):
         full_path = os.path.join(directory, f"{name}_{counter}.{ext}")
@@ -51,297 +53,316 @@ def parse_time_string(time_str):
         logging.error("Invalid time format. Please use HH:MM (e.g., 23:00).")
         return None, None
 
-# ---------------------- Interactive Setup ----------------------
 def interactive_setup():
-    """Interactive setup for recording configuration."""
+    """Interactive setup for recording."""
     print("--- Advanced Interactive Setup ---")
     
+    # Filename
     filename_base = input("Enter a file name for your recording (e.g., 'my_podcast'): ").strip()
     if not filename_base:
         logging.error("No filename provided. Exiting.")
-        return
+        return None
     
-    use_dynamic = input("Use a dynamic filename with timestamp? (y/n): ").strip().lower()
+    # Dynamic Filename
+    use_dynamic = input("Use a dynamic filename with a timestamp? (y/n): ").strip().lower()
     if use_dynamic == 'y':
         filename_base += "_{timestamp}"
     
+    # Duration
     duration = None
-    duration_input = input("Enter duration in seconds (leave blank for infinite): ").strip()
+    duration_input = input("Enter a recording duration in seconds (or leave blank for infinite): ").strip()
     if duration_input:
         try:
             duration = int(duration_input)
         except ValueError:
-            logging.warning("Invalid duration. Using infinite duration.")
+            logging.error("Invalid duration. Using infinite duration.")
     
+    # Start Time
     start_time = None
-    start_time_input = input("Enter start time HH:MM (leave blank for now): ").strip()
+    start_time_input = input("Enter a start time in HH:MM format (leave blank for now): ").strip()
     if start_time_input:
         start_time = start_time_input
         
-    print("\nListing devices...")
+    # Input Device
+    print("\nListing available devices...")
     devices = list_devices()
     input_device = None
-    device_id_input = input("Enter device ID (leave blank for default): ").strip()
+    device_id_input = input("Enter the ID of the device you want to use (or leave blank for default): ").strip()
     if device_id_input:
         try:
             input_device = int(device_id_input)
         except ValueError:
-            logging.warning("Invalid device ID. Using default device.")
+            logging.error("Invalid device ID. Using default device.")
+            
+    # Output Format
+    output_format = input("Enter output format (wav/mp3/flac) [default wav]: ").strip().lower()
+    if output_format not in ["wav", "mp3", "flac"]:
+        output_format = "wav"
     
-    output_format = input("Enter output format (wav/mp3/flac) [default wav]: ").strip().lower() or "wav"
-
+    # Compile arguments
     args = argparse.Namespace(
         filename=filename_base,
         output_dir='.',
         duration=duration,
         input_device=input_device,
         start_time=start_time,
-        interactive=True,
         output_format=output_format
     )
     return args
 
-# ---------------------- Audio Editing Utilities ----------------------
-def list_audio_files(directory='.'):
-    audio_extensions = ('.wav', '.mp3', '.flac')
-    files = [f for f in os.listdir(directory) if f.lower().endswith(audio_extensions)]
-    if not files:
-        print("No audio files found in the current directory.")
-        return []
-    print("\n--- Audio Files ---")
-    for idx, f in enumerate(files, start=1):
-        print(f"{idx}. {f}")
-    print("------------------")
-    return files
-
-def select_file(files):
-    while True:
-        choice = input("Enter the number of the file to edit: ").strip()
-        if not choice.isdigit():
-            print("Enter a valid number.")
-            continue
-        idx = int(choice) - 1
-        if 0 <= idx < len(files):
-            return files[idx]
-        print("Number out of range.")
-
-def interactive_edit_menu():
-    while True:
-        print("\n--- Audio Editing Menu ---")
-        print("1. Trim audio")
-        print("2. Merge audio files")
-        print("3. Fade in/out")
-        print("4. Normalize volume")
-        print("5. Exit")
-        choice = input("Choice [1-5]: ").strip()
-
-        if choice == '1':
-            files = list_audio_files()
-            if not files: continue
-            file_to_edit = select_file(files)
-            audio = AudioSegment.from_file(file_to_edit)
-            start_ms = int(input("Start time in seconds: ").strip()) * 1000
-            end_ms = int(input("End time in seconds: ").strip()) * 1000
-            trimmed = audio[start_ms:end_ms]
-            output = input("Output filename (leave blank to overwrite): ").strip() or file_to_edit
-            trimmed.export(output, format=os.path.splitext(output)[1][1:])
-            print(f"Trimmed audio saved as {output}")
-
-        elif choice == '2':
-            files = list_audio_files()
-            if not files or len(files) < 2:
-                print("Need at least 2 files to merge.")
-                continue
-            print("Enter file numbers to merge, comma-separated:")
-            indices = input().split(',')
-            try:
-                selected_files = [files[int(i.strip())-1] for i in indices]
-            except Exception:
-                print("Invalid selection.")
-                continue
-            combined = AudioSegment.empty()
-            for f in selected_files:
-                combined += AudioSegment.from_file(f)
-            output = input("Output filename: ").strip()
-            if output:
-                combined.export(output, format=os.path.splitext(output)[1][1:])
-                print(f"Merged audio saved as {output}")
-
-        elif choice == '3':
-            files = list_audio_files()
-            if not files: continue
-            file_to_edit = select_file(files)
-            audio = AudioSegment.from_file(file_to_edit)
-            fade_in_ms = int(input("Fade-in duration ms: ").strip())
-            fade_out_ms = int(input("Fade-out duration ms: ").strip())
-            faded = audio.fade_in(fade_in_ms).fade_out(fade_out_ms)
-            output = input("Output filename (leave blank to overwrite): ").strip() or file_to_edit
-            faded.export(output, format=os.path.splitext(output)[1][1:])
-            print(f"Faded audio saved as {output}")
-
-        elif choice == '4':
-            files = list_audio_files()
-            if not files: continue
-            file_to_edit = select_file(files)
-            audio = AudioSegment.from_file(file_to_edit)
-            target_dB = float(input("Target dBFS (e.g., -20.0): ").strip())
-            change_in_dB = target_dB - audio.dBFS
-            normalized = audio.apply_gain(change_in_dB)
-            output = input("Output filename (leave blank to overwrite): ").strip() or file_to_edit
-            normalized.export(output, format=os.path.splitext(output)[1][1:])
-            print(f"Normalized audio saved as {output}")
-
-        elif choice == '5':
-            print("Exiting edit menu.")
-            break
-        else:
-            print("Invalid choice. Enter 1-5.")
-
-# ---------------------- Main Recorder ----------------------
-def main():
-    parser = argparse.ArgumentParser(
-        description='Advanced Sound Recorder & Editor',
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.add_argument('mode', choices=['record','edit'], help='Mode: record or edit')
-    parser.add_argument('-f', '--filename', help='Output filename (with optional placeholders)')
-    parser.add_argument('-o', '--output-dir', default='.', help='Directory to save the recording')
-    parser.add_argument('-d', '--duration', type=int, help='Maximum recording duration in seconds')
-    parser.add_argument('-i', '--input-device', type=int, help='Input device ID')
-    parser.add_argument('-l', '--list-devices', action='store_true', help='List audio input devices and exit')
-    parser.add_argument('--start-time', help='Start time HH:MM')
-    parser.add_argument('--interactive', action='store_true', help='Interactive setup')
-    parser.add_argument('--output-format', help='Recording format (wav/mp3/flac)', default='wav')
-
-    args = parser.parse_args()
-
-    if args.mode == 'edit':
-        interactive_edit_menu()
-        return
-
-    if args.mode == 'record':
-        if args.interactive:
-            args = interactive_setup()
-            if not args:
-                return
-
-        if args.list_devices:
-            list_devices()
-            return
-
-        # Prepare filename
-        filename_base = args.filename or input("Enter filename: ").strip()
+# -------------------------------
+# Audio Recording
+# -------------------------------
+def record_audio(args):
+    """Record audio based on provided arguments."""
+    if not args.filename:
+        filename_base = input("Enter a file name for your recording: ").strip()
         if not filename_base:
             logging.error("No filename provided. Exiting.")
             return
+    else:
+        filename_base = args.filename
 
-        # Handle dynamic timestamp
-        filename_base = filename_base.replace('{timestamp}', datetime.now().strftime('%Y%m%d_%H%M%S'))
-        ext = args.output_format
-        if not os.path.exists(args.output_dir):
-            os.makedirs(args.output_dir)
-        WAVE_OUTPUT_FILENAME = get_unique_filename(filename_base, args.output_dir, ext)
+    # Replace dynamic placeholders
+    filename_base = filename_base.replace('{timestamp}', datetime.now().strftime('%Y%m%d_%H%M%S'))
+    filename_base = filename_base.replace('{date}', datetime.now().strftime('%Y%m%d'))
+    filename_base = filename_base.replace('{time}', datetime.now().strftime('%H%M%S'))
 
-        # Scheduled start
-        if args.start_time:
-            hours, minutes = parse_time_string(args.start_time)
-            if hours is None:
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
+    WAVE_OUTPUT_FILENAME = get_unique_filename(filename_base, args.output_dir, ext=args.output_format)
+
+    # Handle scheduled start time
+    if args.start_time:
+        hours, minutes = parse_time_string(args.start_time)
+        if hours is None:
+            return
+        start_time_dt = datetime.now().replace(hour=hours, minute=minutes, second=0, microsecond=0)
+        if start_time_dt < datetime.now():
+            start_time_dt = start_time_dt.replace(day=start_time_dt.day + 1)
+        delay_seconds = (start_time_dt - datetime.now()).total_seconds()
+        if delay_seconds > 0:
+            print(f"Scheduled recording. Starting in {int(delay_seconds/60)} min {int(delay_seconds%60)} sec...")
+            try:
+                time.sleep(delay_seconds)
+            except KeyboardInterrupt:
+                print("\nScheduled recording canceled.")
                 return
-            start_time_dt = datetime.now().replace(hour=hours, minute=minutes, second=0, microsecond=0)
-            if start_time_dt < datetime.now():
-                start_time_dt = start_time_dt.replace(day=start_time_dt.day + 1)
-            delay = (start_time_dt - datetime.now()).total_seconds()
-            if delay > 0:
-                print(f"Scheduled recording. Starting in {int(delay/60)}m {int(delay%60)}s...")
-                try: time.sleep(delay)
-                except KeyboardInterrupt:
-                    print("Scheduled recording canceled.")
-                    return
 
-        # --- PyAudio Setup ---
-        p = pyaudio.PyAudio()
-        CHUNK = 4096
-        FORMAT = pyaudio.paInt16
-        CHANNELS = 2
-        RATE = 44100
-        input_device_index = args.input_device
+    # --- PyAudio Setup ---
+    p = pyaudio.PyAudio()
+    CHUNK = 4096
+    FORMAT = pyaudio.paInt16
+    CHANNELS = 2
+    RATE = 44100
+
+    input_device_index = args.input_device
+    if input_device_index is not None:
         try:
-            if input_device_index is not None:
-                device_info = p.get_device_info_by_index(input_device_index)
-                CHANNELS = device_info['maxInputChannels']
-                RATE = int(device_info['defaultSampleRate'])
-                print(f"Using device: {device_info['name']}")
+            device_info = p.get_device_info_by_index(input_device_index)
+            print(f"Using device: {device_info['name']}")
+            CHANNELS = device_info['maxInputChannels']
+            RATE = int(device_info['defaultSampleRate'])
         except Exception as e:
-            logging.warning(f"Failed to get device info: {e}. Using default device.")
+            logging.error(f"Failed to get device info for ID {input_device_index}: {e}. Falling back to default.")
             input_device_index = None
 
-        try:
-            stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True,
-                            frames_per_buffer=CHUNK, input_device_index=input_device_index)
-        except Exception as e:
-            logging.error(f"Failed to open audio stream: {e}")
-            p.terminate()
-            return
+    try:
+        stream = p.open(format=FORMAT,
+                        channels=CHANNELS,
+                        rate=RATE,
+                        input=True,
+                        frames_per_buffer=CHUNK,
+                        input_device_index=input_device_index)
+    except Exception as e:
+        logging.error(f"Failed to open audio stream: {e}")
+        p.terminate()
+        return
 
-        frames_queue = queue.Queue()
-        writing_done = threading.Event()
+    # --- Queue-based writing ---
+    frames_queue = queue.Queue()
+    writing_is_complete = threading.Event()
+    
+    def audio_writer():
+        wave_file = wave.open(WAVE_OUTPUT_FILENAME if args.output_format=="wav" else WAVE_OUTPUT_FILENAME.replace(".wav",".tmp"), 'wb')
+        wave_file.setnchannels(CHANNELS)
+        wave_file.setsampwidth(p.get_sample_size(FORMAT))
+        wave_file.setframerate(RATE)
+        while not writing_is_complete.is_set() or not frames_queue.empty():
+            try:
+                data = frames_queue.get(timeout=1)
+                wave_file.writeframes(data)
+                frames_queue.task_done()
+            except queue.Empty:
+                continue
+        wave_file.close()
+        # Convert to final format if needed
+        if args.output_format != "wav":
+            audio = AudioSegment.from_wav(wave_file.name)
+            audio.export(WAVE_OUTPUT_FILENAME, format=args.output_format)
+            os.remove(wave_file.name)
 
-        def audio_writer():
-            wave_file = wave.open(WAVE_OUTPUT_FILENAME, 'wb')
-            wave_file.setnchannels(CHANNELS)
-            wave_file.setsampwidth(p.get_sample_size(FORMAT))
-            wave_file.setframerate(RATE)
-            while not writing_done.is_set() or not frames_queue.empty():
-                try:
-                    data = frames_queue.get(timeout=1)
-                    wave_file.writeframes(data)
-                    frames_queue.task_done()
-                except queue.Empty:
-                    continue
-            wave_file.close()
+    writer_thread = threading.Thread(target=audio_writer)
+    writer_thread.start()
 
-        writer_thread = threading.Thread(target=audio_writer)
-        writer_thread.start()
-        start_time = time.time()
-        paused = False
+    start_time_rec = time.time()
+    paused = False
 
-        def status_check():
-            print(f"\nRecorded {int(time.time()-start_time)}s of audio.")
+    def status_check():
+        duration_secs = int(time.time() - start_time_rec)
+        print(f"\nStatus check: {duration_secs} seconds recorded.")
 
-        def toggle_pause():
-            nonlocal paused
-            paused = not paused
-            print("Recording paused" if paused else "Recording resumed")
+    def toggle_pause():
+        nonlocal paused
+        paused = not paused
+        print("Recording paused" if paused else "Recording resumed")
 
-        keyboard.add_hotkey('s', status_check)
-        keyboard.add_hotkey('p', toggle_pause)
-        print("Recording started. Ctrl+C to stop, 's' status, 'p' pause/resume.")
+    keyboard.add_hotkey('s', status_check)
+    keyboard.add_hotkey('p', toggle_pause)
 
-        try:
-            while True:
-                if args.duration and (time.time() - start_time) > args.duration:
-                    print("Duration limit reached.")
-                    break
-                if paused:
-                    time.sleep(0.1)
-                    continue
+    print(f"Recording started. Ctrl+C to stop, 's' for status, 'p' to pause/resume.")
+
+    try:
+        while True:
+            if args.duration and (time.time() - start_time_rec) > args.duration:
+                print("Duration limit reached.")
+                break
+            if not paused:
                 data = stream.read(CHUNK, exception_on_overflow=False)
                 frames_queue.put(data)
-        except KeyboardInterrupt:
-            print("Recording stopped by user.")
-        except Exception as e:
-            logging.error(f"Recording error: {e}")
-        finally:
-            keyboard.remove_hotkey('s')
-            keyboard.remove_hotkey('p')
-            stream.stop_stream()
-            stream.close()
-            p.terminate()
-            writing_done.set()
-            writer_thread.join()
-            frames_queue.join()
-            duration_secs = time.time() - start_time
-            print(f"Recording complete: {WAVE_OUTPUT_FILENAME} ({duration_secs:.2f}s)")
+    except KeyboardInterrupt:
+        print("\nRecording stopped by user.")
+    except Exception as e:
+        logging.error(f"Recording error: {e}")
+    finally:
+        keyboard.remove_hotkey('s')
+        keyboard.remove_hotkey('p')
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+        writing_is_complete.set()
+        writer_thread.join()
+        frames_queue.join()
+        duration_secs = time.time() - start_time_rec
+        print(f"Recording complete. Saved {args.output_format.upper()}: '{WAVE_OUTPUT_FILENAME}'")
+        print(f"Duration: {duration_secs:.2f} seconds ({duration_secs/60:.2f} minutes)")
+
+# -------------------------------
+# Edit Menu
+# -------------------------------
+def edit_menu():
+    """Interactive audio editing menu."""
+    import glob
+    files = glob.glob("*.wav") + glob.glob("*.mp3") + glob.glob("*.flac")
+    if not files:
+        print("No audio files found in current directory.")
+        return
+
+    print("\nAvailable files:")
+    for idx, f in enumerate(files):
+        print(f"{idx+1}: {f}")
+
+    choice = input("Select file number to edit: ").strip()
+    try:
+        file_idx = int(choice)-1
+        filename = files[file_idx]
+    except Exception:
+        print("Invalid selection.")
+        return
+
+    audio = AudioSegment.from_file(filename)
+    while True:
+        print("\n--- Edit Menu ---")
+        print("1. Trim")
+        print("2. Fade In")
+        print("3. Fade Out")
+        print("4. Normalize")
+        print("5. Save & Exit")
+        edit_choice = input("Choose option: ").strip()
+        if edit_choice == "1":
+            start = int(input("Start (sec): "))
+            end = int(input("End (sec): "))
+            audio = audio[start*1000:end*1000]
+        elif edit_choice == "2":
+            duration = int(input("Fade in duration (sec): "))
+            audio = audio.fade_in(duration*1000)
+        elif edit_choice == "3":
+            duration = int(input("Fade out duration (sec): "))
+            audio = audio.fade_out(duration*1000)
+        elif edit_choice == "4":
+            audio = audio.normalize()
+        elif edit_choice == "5":
+            out_file = input(f"Enter output filename [default overwrite {filename}]: ").strip()
+            if not out_file:
+                out_file = filename
+            audio.export(out_file, format=filename.split('.')[-1])
+            print(f"Saved '{out_file}'")
+            break
+        else:
+            print("Invalid choice.")
+
+# -------------------------------
+# Main
+# -------------------------------
+def main():
+    parser = argparse.ArgumentParser(
+        description='Advanced Sound Recorder & Editor\n\n'
+                    'A command-line tool for recording and editing audio files.\n'
+                    'Supports WAV, MP3, FLAC, pausing, status check, and interactive setup.',
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument('-I', '--interactive', action='store_true',
+                        help='Launch interactive setup mode to configure recording')
+    parser.add_argument('-R', '--record', action='store_true',
+                        help='Record audio. If combined with -I, opens interactive setup first')
+    parser.add_argument('-E', '--edit', action='store_true',
+                        help='Open edit menu to trim, merge, fade, or normalize audio files')
+    parser.add_argument('-L', '--list-devices', action='store_true',
+                        help='List all available audio input devices')
+    parser.epilog = (
+        "Examples:\n"
+        "  python sound_recorder.py -R                # Start recording immediately\n"
+        "  python sound_recorder.py -I -R             # Launch interactive setup then record\n"
+        "  python sound_recorder.py -E                # Open edit menu\n"
+        "  python sound_recorder.py -L                # List audio input devices\n"
+        "  python sound_recorder.py                   # Fallback menu for interactive choice\n"
+    )
+
+    args = parser.parse_args()
+
+    # If no arguments provided, ask user
+    if not any([args.interactive, args.record, args.edit, args.list_devices]):
+        resp = input("No mode specified. Launch interactive setup? (y/n) ").strip().lower()
+        if resp == 'y':
+            args.interactive = True
+            args.record = True
+        else:
+            args.record = True
+
+    if args.list_devices:
+        list_devices()
+        return
+
+    if args.edit:
+        edit_menu()
+        return
+
+    if args.record:
+        if args.interactive:
+            setup_args = interactive_setup()
+            if setup_args:
+                record_audio(setup_args)
+        else:
+            # Default recording with basic parameters
+            record_audio(argparse.Namespace(
+                filename=f"recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                output_dir='.',
+                duration=None,
+                input_device=None,
+                start_time=None,
+                output_format='wav'
+            ))
 
 if __name__ == "__main__":
     main()
